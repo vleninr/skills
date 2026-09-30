@@ -1,92 +1,100 @@
 ---
 name: Project_Health_Checker
-description: Da un diagnóstico de salud y avance del proyecto actual, sea del tipo que sea (código, documentación/specs, mixto) — detecta la estructura real del repo, chequea completitud, puntos abiertos/bloqueos, consistencia entre artefactos, y estado de git. Use when user runs /Project_Health_Checker, or asks for project status, health check, seguimiento del proyecto, avance, or "cómo va el proyecto".
+description: Revisa el estado de salud del proyecto actual — consistencia y completitud entre PRD, HUs y specs UX, Puntos Abiertos sin resolver, brechas de cobertura entre roles, y (opcional) estado de agentes herdr activos. Use when user runs /Project_Health_Checker, or asks for project status, health check, seguimiento del proyecto, or "cómo va el proyecto".
 type: skill
-tags: [seguimiento, salud-proyecto, genérico, git]
+tags: [seguimiento, salud-proyecto, prd, herdr]
 ---
 
-# Project Health Checker — Estado y avance del proyecto
+# Project Health Checker — Estado del proyecto
 
 ## Goal
 
-Dar un diagnóstico rápido y honesto del estado del proyecto en el que se invoque esta skill —
-sin asumir de antemano qué tipo de proyecto es. Detecta la estructura real (código, docs/specs,
-multi-agente, mixto) y adapta el chequeo a eso. Es solo lectura: nunca edita, resuelve ni
-inventa contenido de los archivos que revisa.
+Dar un diagnóstico rápido y honesto del estado del proyecto en el que se invoca (cualquier
+repo que siga la estructura PRD → HUs → specs UX descrita en su `AGENTS.md`): qué tan completos y consistentes están `PRD.md`, `HU-*.md` y `Especificacion-UX-*.md`, qué Puntos
+Abiertos siguen sin resolver, y dónde hay brechas de handoff entre los roles, en el orden que
+declare el `AGENTS.md` del proyecto. No modifica
+ningún archivo — es solo lectura y reporte.
 
 ## Input
 
 Ninguno requerido. Parámetro opcional:
 
-- `--agents` — si el proyecto usa un sistema multi-agente (ej. herdr, con roles definidos en
-  `AGENTS.md` u otro archivo equivalente), además revisa qué agentes están vivos/activos y su
-  estado. Sin este flag, el chequeo es solo sobre archivos y git.
+- `--agents` — además del chequeo de documentos, revisa si hay agentes vivos de los roles del
+  proyecto (los que declare `AGENTS.md`; por defecto PM/BA/UX) en el
+  workspace herdr actual y su estado (activo/idle). Sin este flag, el chequeo es solo sobre
+  archivos.
 
 ## Workflow
 
-1. **Detectar convenciones propias del proyecto primero.** Buscar `AGENTS.md`, `CLAUDE.md`, o
-   equivalente en la raíz. Si existe, leerlo completo — ahí suele estar la fuente de verdad
-   sobre: qué archivos son clave, quién es dueño de cada uno, qué reglas de proceso aplican
-   (ej. "no inventar requisitos", orden de handoff entre roles, dónde marcar incertidumbre).
-   Usar esas reglas para decidir qué chequear y cómo, en vez de una lista fija.
+1. **Confirmar estructura vigente.** Leer `AGENTS.md` en la raíz del repo y extraer:
+   - La tabla de "Key Files" — si cambió, usar esa versión como fuente de verdad en vez de la
+     lista fija de abajo.
+   - Los roles del proyecto y el **orden de handoff** declarado (ej. `PM → BA → ARCH → UX`).
+     Si `AGENTS.md` no declara un orden, usar `PM → BA → UX` como valor por defecto y avisarlo
+     en el reporte.
 
-2. **Clasificar el tipo de proyecto** con lo que hay en el repo, sin preguntar primero:
-   - **Código**: presencia de `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, carpeta
-     `src/`, tests, CI config (`.github/workflows`, etc.).
-   - **Documentación/specs**: archivos markdown de planificación (PRD, backlog, historias de
-     usuario, specs de diseño, ADRs) sin build/tests.
-   - **Mixto**: ambos presentes.
-   - **Multi-agente**: `AGENTS.md` describe roles/playbooks y un CLI de coordinación (ej.
-     herdr) — habilita el chequeo `--agents`.
+2. **Chequear `PRD.md`** (dueño: PM):
+   - Existe y tiene las secciones que exige su template. Si el PRD se generó con
+     `/generar-prd-conversacional`, usar las secciones de ese template; si no, esperar como
+     mínimo: Problema, Objetivo, Alcance (incluye / no incluye), Supuestos y Puntos Abiertos,
+     Criterios de éxito.
+   - Puntos Abiertos pueden estar en una sección propia o en "Supuestos y riesgos abiertos",
+     además de marcadores inline `<!-- REVISAR: ... -->` — contar ambos.
+   - Listar cada "Punto abierto" tal cual está escrito — no resolverlos ni inventar respuesta.
+   - Confirmar que el Alcance distingue explícitamente qué incluye y qué no.
 
-3. **Chequeo de completitud**, según lo que aplique:
-   - *Código*: ¿hay `README`? ¿hay tests y corren (si es rápido y seguro ejecutarlos, no
-     asumir)? ¿hay lint/build configurado? ¿hay TODOs/FIXMEs sin trackear en issues?
-   - *Docs/specs*: ¿cada documento de planificación tiene las secciones que su propia
-     convención espera (objetivo, alcance, criterios de éxito, etc.)? ¿hay checklists con
-     items sin marcar?
-   - En ambos casos: buscar marcadores explícitos de incertidumbre o trabajo pendiente en el
-     texto — "TODO", "FIXME", "TBD", "Puntos Abiertos", "Pendiente", "WIP" — y listarlos tal
-     cual, sin resolverlos.
+3. **Chequear `HU-*.md`** (dueño: BA), uno por uno:
+   - Tiene criterios de aceptación en formato Gherkin (Given/When/Then).
+   - Su alcance cae dentro de lo que `PRD.md` define como incluido — si una HU cubre algo que
+     el PRD marcó como fuera de alcance (leer la lista real de "No alcance" / "No incluye" del
+     PRD del proyecto), marcarlo como
+     inconsistencia, no corregirlo en silencio.
+   - Si una HU depende de un Punto Abierto no resuelto del PRD, señalarlo citando el punto.
 
-4. **Chequeo de consistencia entre artefactos**, si el proyecto tiene más de un tipo de
-   documento que debería estar alineado (ej. specs de producto vs. historias de usuario vs.
-   diseño UI; o requirements vs. código implementado). Cruzar referencias y señalar:
-   - Algo definido en un artefacto "fuente" (ej. PRD/backlog) que no tiene contraparte en los
-     artefactos derivados (ej. ninguna historia lo cubre).
-   - Algo en un artefacto derivado que no traza a ningún requisito de origen (posible scope
-     creep).
-   - No corregir estas brechas — reportarlas.
+4. **Chequear `Especificacion-UX-*.md`** (dueño: UX):
+   - Existe y referencia formato Stitch-consumable (markdown determinista, tablas, jerarquías
+     explícitas), como pide `AGENTS.md`.
+   - Cruzar contra `HU-*.md`: toda HU con impacto en UI debería tener cobertura en la spec UX;
+     toda pantalla/flujo en la spec UX debería trazar a al menos una HU. Reportar huecos en
+     ambos sentidos.
 
-5. **Chequeo de git**, si el directorio es un repo git:
-   - `git status` — cambios sin commitear, archivos untracked relevantes.
-   - Rama actual vs. rama principal — ahead/behind, si diverge.
-   - Fecha del último commit — señal de proyecto activo vs. estancado.
-   - No ejecutar nada destructivo ni hacer commit/push como parte de este chequeo.
+4b. **Chequear artefactos de otros roles declarados.** Para cada rol del handoff que no sea
+   PM/BA/UX (ej. ARCH con Technical Design + ADRs), verificar que su artefacto exista según
+   `AGENTS.md` y que trace al PRD/HUs. Si `AGENTS.md` no dice dónde vive ese artefacto,
+   reportarlo como "ubicación no declarada" — no adivinar.
 
-6. **Si se pasó `--agents` y el proyecto es multi-agente:** revisar agentes vivos y su estado
-   (activo/idle/bloqueado) usando el CLI que `AGENTS.md` describa, cruzando panes/workspace con
-   agentes igual que haría una skill de invocación de agentes ya existente en el proyecto (si
-   la hay). No crear ni invocar ningún agente — solo leer estado.
+5. **Handoff según el orden declarado.** Con los pasos 2–4b ya hechos, resumir en qué etapa
+   está el proyecto siguiendo el orden de handoff extraído en el paso 1 (ej. "PRD cerrado, HUs
+   completas, Tech Design pendiente, UX no iniciado") y si el orden de entrega se respetó
+   (un rol produjo su artefacto antes de que el rol previo cerrara el suyo) (BA/UX pueden coordinar directo entre sí, pero PM es quien resuelve
+   conflictos de alcance).
 
-7. **Entregar el reporte en el chat** (diagnóstico puntual, no se guarda como archivo salvo que
-   el usuario lo pida). Estructura sugerida, adaptada a lo que aplicó en los pasos anteriores:
-   - Tipo de proyecto detectado y en qué se basó la detección (una línea).
-   - Estado por área relevante (ej. Código / Docs / Consistencia / Git) en verde (completo y
-     consistente), amarillo (incompleto) o rojo (inconsistente, bloqueado o estancado).
-   - Puntos pendientes/abiertos encontrados, listados tal cual.
-   - Brechas de cobertura o consistencia entre artefactos, si aplicó el paso 4.
+6. **Si se pasó `--agents`:** revisar agentes herdr vivos.
+   - Resolver workspace actual (`HERDR_WORKSPACE_ID`, o `herdr pane get $HERDR_PANE_ID` si no
+     está en el entorno).
+   - `herdr pane list --workspace <workspace_id>` y `herdr agent list`, cruzarlos igual que hace
+     `invoke-agent`, para ver qué roles del proyecto (en minúsculas, ej. `pm`/`ba`/`arch`/`ux`)
+     están vivos en este workspace y su
+     estado.
+   - No crear ni invocar ningún agente — este chequeo es de solo lectura.
+
+7. **Entregar el reporte en el chat** (es un diagnóstico puntual, no un artefacto que viva en el
+   repo — no se guarda como archivo salvo que el usuario lo pida explícitamente). Estructura
+   sugerida:
+   - Estado por área, una por rol del handoff (ej. PRD / HUs / Tech Design / UX) (verde = completo y consistente, amarillo = incompleto,
+     rojo = inconsistente o bloqueado).
+   - Puntos Abiertos pendientes (lista textual, sin resolver).
+   - Brechas de cobertura HU ↔ UX.
    - Estado de agentes vivos, si se pidió `--agents`.
-   - Próxima acción recomendada, concreta y accionable.
+   - Próxima acción recomendada (a qué rol le toca mover, según playbooks).
 
 ## Notas
 
-- Solo lectura: nunca edita, corrige ni completa los archivos que revisa. Corregir lo
-  encontrado es trabajo de quien sea dueño de ese artefacto, no de esta skill.
-- No inventar resolución de puntos pendientes ni de brechas: reportarlos tal cual estén, aunque
-  el proyecto no tenga una convención explícita para marcarlos.
-- Si el proyecto no tiene `AGENTS.md`/`CLAUDE.md` ni ninguna convención detectable, decirlo
-  explícitamente y basar el chequeo solo en señales genéricas (git, TODOs, README, tests) en
-  vez de simular que existe una estructura que no está.
-- Si `AGENTS.md` (o equivalente) cambió de estructura desde la última vez, priorizar siempre lo
-  que hay ahora en el repo sobre cualquier supuesto previo.
+- Solo lectura: nunca edita `PRD.md`, `HU-*.md`, `Especificacion-UX-*.md` ni artefactos de otros
+  roles. Si el chequeo
+  encuentra algo que corregir, se lo reporta al usuario — corregirlo es trabajo del rol dueño
+  del archivo (`init-agent`/`invoke-agent` con el rol correspondiente).
+- No inventar resolución de Puntos Abiertos ni de brechas: reportarlos tal cual, igual que
+  exigen los playbooks de cada rol.
+- Si `AGENTS.md` no existe o cambió de estructura, avisar y ajustar el chequeo a lo que
+  realmente hay en el repo antes de reportar "faltante" sobre archivos que ya no aplican.
